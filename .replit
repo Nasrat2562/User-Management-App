@@ -1,9 +1,0 @@
-run = "cd backend && npm install && node server.js"
-language = "nodejs"
-
-[env]
-PORT = "3000"
-NODE_ENV = "production"
-
-[deployment]
-deploymentTarget = "replit"
