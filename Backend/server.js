@@ -591,7 +591,7 @@ app.post('/api/users/block', auth, async (req, res) => {
     }
 });
 
-// Unblock users
+// Unblock users - FIXED: Check verification token to determine correct status
 app.post('/api/users/unblock', auth, async (req, res) => {
     try {
         const { userIds } = req.body;
@@ -600,8 +600,16 @@ app.post('/api/users/unblock', auth, async (req, res) => {
         }
         
         const placeholders = userIds.map(() => '?').join(',');
+        
+        // FIX: Check verification token to determine correct status
+        // If user has verification_token, set to 'unverified', otherwise 'active'
         const result = await dbRun(
-            `UPDATE users SET status = 'active' WHERE id IN (${placeholders}) AND status = 'blocked'`,
+            `UPDATE users 
+             SET status = CASE 
+                WHEN verification_token IS NOT NULL THEN 'unverified' 
+                ELSE 'active' 
+             END
+             WHERE id IN (${placeholders}) AND status = 'blocked'`,
             userIds
         );
         
