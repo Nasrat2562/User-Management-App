@@ -693,40 +693,53 @@
         }
 
         // Selection functions (REQUIREMENT: Multiple selection with checkboxes)
-        function selectAllUsers() {
-            const selectAll = document.getElementById('selectAll').checked;
-            const visibleCheckboxes = document.querySelectorAll('#usersTable tr[style=""] .user-checkbox');
-            
-            visibleCheckboxes.forEach(checkbox => {
-                checkbox.checked = selectAll;
-            });
-            
-            updateSelection();
+function selectAllUsers() {
+    const selectAll = document.getElementById('selectAll').checked;
+    // Get all visible checkboxes in the table body
+    const checkboxes = document.querySelectorAll('#usersTable .user-checkbox');
+    
+    checkboxes.forEach(checkbox => {
+        // Only check visible rows (not display: none)
+        const row = checkbox.closest('tr');
+        if (row.style.display !== 'none') {
+            checkbox.checked = selectAll;
         }
+    });
+    
+    updateSelection();
+}
 
-        function updateSelection() {
-            const checkboxes = document.querySelectorAll('.user-checkbox:checked');
-            selectedUserIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
-            
-            document.getElementById('selectedCount').textContent = 
-                `${selectedUserIds.length} user${selectedUserIds.length !== 1 ? 's' : ''} selected`;
-            
-            // Check status of selected users
-            const blockedCheckboxes = document.querySelectorAll('.user-checkbox:checked[data-blocked="true"]');
-            const hasBlockedUsers = blockedCheckboxes.length > 0;
-            const hasNonBlockedSelection = selectedUserIds.length > blockedCheckboxes.length;
-            
-            // Enable/disable buttons
-            document.getElementById('blockBtn').disabled = !hasNonBlockedSelection;
-            document.getElementById('unblockBtn').disabled = !hasBlockedUsers;
-            document.getElementById('deleteBtn').disabled = selectedUserIds.length === 0;
-            
-            // Update "Select All" checkbox
-            const visibleCheckboxes = document.querySelectorAll('#usersTable tr[style=""] .user-checkbox');
-            const allChecked = visibleCheckboxes.length > 0 && 
-                Array.from(visibleCheckboxes).every(cb => cb.checked);
-            document.getElementById('selectAll').checked = allChecked;
-        }
+function updateSelection() {
+    const checkboxes = document.querySelectorAll('.user-checkbox');
+    const visibleCheckboxes = Array.from(checkboxes).filter(cb => {
+        const row = cb.closest('tr');
+        return row.style.display !== 'none';
+    });
+    
+    selectedUserIds = visibleCheckboxes
+        .filter(cb => cb.checked)
+        .map(cb => parseInt(cb.value));
+    
+    // Update the count
+    document.getElementById('selectedCount').textContent = 
+        `${selectedUserIds.length} user${selectedUserIds.length !== 1 ? 's' : ''} selected`;
+    
+    // Update "Select All" checkbox
+    const allVisibleChecked = visibleCheckboxes.length > 0 && 
+        visibleCheckboxes.every(cb => cb.checked);
+    document.getElementById('selectAll').checked = allVisibleChecked;
+    
+    // Update button states
+    const blockedCheckboxes = visibleCheckboxes.filter(cb => 
+        cb.checked && cb.hasAttribute('data-blocked')
+    );
+    const hasBlockedUsers = blockedCheckboxes.length > 0;
+    const hasNonBlockedSelection = selectedUserIds.length > blockedCheckboxes.length;
+    
+    document.getElementById('blockBtn').disabled = !hasNonBlockedSelection;
+    document.getElementById('unblockBtn').disabled = !hasBlockedUsers;
+    document.getElementById('deleteBtn').disabled = selectedUserIds.length === 0;
+}
 
         // Action functions
         async function showConfirm(message) {
