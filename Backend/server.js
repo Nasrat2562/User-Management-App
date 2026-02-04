@@ -167,7 +167,7 @@ app.get('/api/health', (req, res) => {
     res.json({ success: true, status: 'OK', port: PORT });
 });
 
-// Register endpoint with REAL email sending
+// Register endpoint with REAL email sending - UPDATED: last_login = NULL
 app.post('/api/register', async (req, res) => {
     try {
         const { name, email, password } = req.body;
@@ -192,9 +192,9 @@ app.post('/api/register', async (req, res) => {
         // Generate verification token
         const verificationToken = crypto.randomBytes(32).toString('hex');
         
-        // Insert user WITH last_login set to current time
+        // Insert user - last_login is NULL by default
         const result = await dbRun(
-            'INSERT INTO users (name, email, password, verification_token, status, reg_time, last_login) VALUES (?, ?, ?, ?, "unverified", datetime("now"), datetime("now"))',
+            'INSERT INTO users (name, email, password, verification_token, status, reg_time) VALUES (?, ?, ?, ?, "unverified", datetime("now"))',
             [name, email, password, verificationToken]
         );
         
@@ -207,9 +207,8 @@ app.post('/api/register', async (req, res) => {
             expires: Date.now() + 86400000
         };
         
-        // Get user with last_login included
         const user = await dbGet(
-            'SELECT id, name, email, status, last_login FROM users WHERE id = ?',
+            'SELECT id, name, email, status FROM users WHERE id = ?',
             [result.lastID]
         );
         
@@ -318,7 +317,7 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-// Email verification endpoint
+// Email verification endpoint - UPDATED: Don't update last_login
 app.get('/api/verify-email/:token', async (req, res) => {
     try {
         const { token } = req.params;
@@ -368,9 +367,9 @@ app.get('/api/verify-email/:token', async (req, res) => {
         
         // Update user status to active if not blocked
         if (user.status !== 'blocked') {
-            // Update last_login when email is verified
+            // Only update status and verification_token, NOT last_login
             await dbRun(
-                'UPDATE users SET status = "active", verification_token = NULL, last_login = datetime("now") WHERE id = ?',
+                'UPDATE users SET status = "active", verification_token = NULL WHERE id = ?',
                 [user.id]
             );
             
@@ -473,7 +472,7 @@ app.get('/api/verify-email/:token', async (req, res) => {
     }
 });
 
-// Login endpoint
+// Login endpoint - UPDATED: Update last_login
 app.post('/api/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -495,7 +494,7 @@ app.post('/api/login', async (req, res) => {
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
         
-        // Update last login
+        // Update last login - ONLY HERE
         await dbRun('UPDATE users SET last_login = datetime("now") WHERE id = ?', [user.id]);
         
         // Generate token
@@ -524,7 +523,7 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// Get users sorted by last login (REQUIREMENT #3) - UPDATED
+// Get users sorted by last login (REQUIREMENT #3) - UPDATED: Show NULL as Never
 app.get('/api/users', auth, async (req, res) => {
     try {
         const users = await dbAll(`
@@ -533,8 +532,7 @@ app.get('/api/users', auth, async (req, res) => {
                 name, 
                 email, 
                 status, 
-                -- Use registration time if last_login is NULL
-                COALESCE(last_login, reg_time) as last_login,
+                last_login,
                 reg_time
             FROM users 
             ORDER BY 
@@ -546,7 +544,7 @@ app.get('/api/users', auth, async (req, res) => {
         const formattedUsers = users.map(user => {
             const userData = { ...user };
             
-            // Format last_login
+            // Format last_login - leave NULL as NULL
             if (userData.last_login && typeof userData.last_login === 'string') {
                 // Convert SQLite datetime to ISO format if needed
                 if (!userData.last_login.includes('T')) {
