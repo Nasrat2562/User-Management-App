@@ -55,17 +55,11 @@ function initializeDatabase() {
 
 
 const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
+    service: 'gmail',
     auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD
-    },
-    tls: {
-        rejectUnauthorized: false
-    },
-    connectionTimeout: 5000 // 5 seconds timeout
+        user: 'nasratj35@gmail.com',  // CHANGE TO YOUR GMAIL
+        pass: 'pmlc epek gaxe jevr'       // CHANGE TO YOUR APP PASSWORD (16 chars)
+    }
 });
 
 // Test email connection
@@ -597,7 +591,6 @@ app.post('/api/users/block', auth, async (req, res) => {
     }
 });
 
-// Unblock users - FIXED: Check verification token to determine correct status
 app.post('/api/users/unblock', auth, async (req, res) => {
     try {
         const { userIds } = req.body;
@@ -607,8 +600,7 @@ app.post('/api/users/unblock', auth, async (req, res) => {
         
         const placeholders = userIds.map(() => '?').join(',');
         
-        // FIX: Check verification token to determine correct status
-        // If user has verification_token, set to 'unverified', otherwise 'active'
+        // Unblock users, but set status based on verification_token
         const result = await dbRun(
             `UPDATE users 
              SET status = CASE 
