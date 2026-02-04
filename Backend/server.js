@@ -167,7 +167,8 @@ app.get('/api/health', (req, res) => {
     res.json({ success: true, status: 'OK', port: PORT });
 });
 
-// Register endpoint with REAL email sending - UPDATED: last_login = NULL
+// Register endpoint with REAL email sending
+// Register endpoint with REAL email sending - UPDATED: Check for blocked accounts
 app.post('/api/register', async (req, res) => {
     try {
         const { name, email, password } = req.body;
@@ -184,8 +185,15 @@ app.post('/api/register', async (req, res) => {
         }
         
         // Check if email already exists
-        const existingUser = await dbGet('SELECT id FROM users WHERE email = ?', [email]);
+        const existingUser = await dbGet('SELECT id, status FROM users WHERE email = ?', [email]);
         if (existingUser) {
+            // If user exists and is blocked, don't allow new registration
+if (existingUser.status === 'blocked') {
+    return res.status(400).json({ 
+        success: false, 
+        message: 'This email is associated with a blocked account. Please contact administrator.' 
+    });
+}
             return res.status(400).json({ success: false, message: 'Email already exists' });
         }
         
@@ -317,7 +325,7 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-// Email verification endpoint - UPDATED: Don't update last_login
+// Email verification endpoint
 app.get('/api/verify-email/:token', async (req, res) => {
     try {
         const { token } = req.params;
@@ -367,7 +375,6 @@ app.get('/api/verify-email/:token', async (req, res) => {
         
         // Update user status to active if not blocked
         if (user.status !== 'blocked') {
-            // Only update status and verification_token, NOT last_login
             await dbRun(
                 'UPDATE users SET status = "active", verification_token = NULL WHERE id = ?',
                 [user.id]
@@ -472,7 +479,7 @@ app.get('/api/verify-email/:token', async (req, res) => {
     }
 });
 
-// Login endpoint - UPDATED: Update last_login
+// Login endpoint
 app.post('/api/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -486,15 +493,19 @@ app.post('/api/login', async (req, res) => {
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
         
+        // Check if user is blocked - if blocked, cannot login
         if (user.status === 'blocked') {
-            return res.status(403).json({ success: false, message: 'Account is blocked' });
+            return res.status(403).json({ 
+                success: false, 
+                message: 'Account is blocked. Please contact administrator to unblock your account.' 
+            });
         }
         
         if (user.password !== password) {
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
         
-        // Update last login - ONLY HERE
+        // Update last login
         await dbRun('UPDATE users SET last_login = datetime("now") WHERE id = ?', [user.id]);
         
         // Generate token
@@ -523,17 +534,11 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// Get users sorted by last login (REQUIREMENT #3) - UPDATED: Show NULL as Never
+// Get users sorted by last login (REQUIREMENT #3)
 app.get('/api/users', auth, async (req, res) => {
     try {
         const users = await dbAll(`
-            SELECT 
-                id, 
-                name, 
-                email, 
-                status, 
-                last_login,
-                reg_time
+            SELECT id, name, email, status, last_login, reg_time
             FROM users 
             ORDER BY 
                 CASE WHEN last_login IS NULL THEN 1 ELSE 0 END,
@@ -544,19 +549,12 @@ app.get('/api/users', auth, async (req, res) => {
         const formattedUsers = users.map(user => {
             const userData = { ...user };
             
-            // Format last_login - leave NULL as NULL
             if (userData.last_login && typeof userData.last_login === 'string') {
-                // Convert SQLite datetime to ISO format if needed
-                if (!userData.last_login.includes('T')) {
-                    userData.last_login = userData.last_login.replace(' ', 'T') + 'Z';
-                }
+                userData.last_login = userData.last_login.replace(' ', 'T') + 'Z';
             }
             
-            // Format reg_time
             if (userData.reg_time && typeof userData.reg_time === 'string') {
-                if (!userData.reg_time.includes('T')) {
-                    userData.reg_time = userData.reg_time.replace(' ', 'T') + 'Z';
-                }
+                userData.reg_time = userData.reg_time.replace(' ', 'T') + 'Z';
             }
             
             return userData;
@@ -578,34 +576,42 @@ app.post('/api/users/block', auth, async (req, res) => {
             return res.status(400).json({ success: false, message: 'No users selected' });
         }
         
-        // Filter out current user from blocking themselves
-        const filteredIds = userIds.filter(id => id !== req.userId);
-        if (filteredIds.length === 0) {
-            return res.status(400).json({ success: false, message: 'Cannot block yourself' });
-        }
-        
-        const placeholders = filteredIds.map(() => '?').join(',');
+        // ALLOW users to block themselves (no filtering)
+        const placeholders = userIds.map(() => '?').join(',');
         const result = await dbRun(
             `UPDATE users SET status = 'blocked' WHERE id IN (${placeholders})`,
-            filteredIds
+            userIds
         );
+        
+        // Check if current user is blocking themselves
+        const isBlockingSelf = userIds.includes(req.userId);
         
         // Remove tokens for blocked users
         Object.keys(tokenStorage).forEach(token => {
             const data = tokenStorage[token];
-            if (filteredIds.includes(data.userId)) {
+            if (userIds.includes(data.userId)) {
                 delete tokenStorage[token];
             }
         });
         
-        res.json({ success: true, message: `Blocked ${result.changes} user(s)` });
+        const message = `Blocked ${result.changes} user(s)`;
+        
+        if (isBlockingSelf) {
+            return res.json({ 
+                success: true, 
+                message: message + ' including yourself. You have been logged out.',
+                currentUserBlocked: true
+            });
+        }
+        
+        res.json({ success: true, message: message });
     } catch (err) {
         console.error('Block error:', err);
         res.status(500).json({ success: false, message: 'Error blocking users' });
     }
 });
 
-// Unblock users - FIXED: Check verification token to determine correct status
+
 app.post('/api/users/unblock', auth, async (req, res) => {
     try {
         const { userIds } = req.body;
