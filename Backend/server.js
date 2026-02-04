@@ -192,9 +192,9 @@ app.post('/api/register', async (req, res) => {
         // Generate verification token
         const verificationToken = crypto.randomBytes(32).toString('hex');
         
-        // Insert user
+        // Insert user WITH last_login set to current time
         const result = await dbRun(
-            'INSERT INTO users (name, email, password, verification_token, status, reg_time) VALUES (?, ?, ?, ?, "unverified", datetime("now"))',
+            'INSERT INTO users (name, email, password, verification_token, status, reg_time, last_login) VALUES (?, ?, ?, ?, "unverified", datetime("now"), datetime("now"))',
             [name, email, password, verificationToken]
         );
         
@@ -207,8 +207,9 @@ app.post('/api/register', async (req, res) => {
             expires: Date.now() + 86400000
         };
         
+        // Get user with last_login included
         const user = await dbGet(
-            'SELECT id, name, email, status FROM users WHERE id = ?',
+            'SELECT id, name, email, status, last_login FROM users WHERE id = ?',
             [result.lastID]
         );
         
@@ -367,8 +368,9 @@ app.get('/api/verify-email/:token', async (req, res) => {
         
         // Update user status to active if not blocked
         if (user.status !== 'blocked') {
+            // Update last_login when email is verified
             await dbRun(
-                'UPDATE users SET status = "active", verification_token = NULL WHERE id = ?',
+                'UPDATE users SET status = "active", verification_token = NULL, last_login = datetime("now") WHERE id = ?',
                 [user.id]
             );
             
@@ -522,11 +524,18 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// Get users sorted by last login (REQUIREMENT #3)
+// Get users sorted by last login (REQUIREMENT #3) - UPDATED
 app.get('/api/users', auth, async (req, res) => {
     try {
         const users = await dbAll(`
-            SELECT id, name, email, status, last_login, reg_time
+            SELECT 
+                id, 
+                name, 
+                email, 
+                status, 
+                -- Use registration time if last_login is NULL
+                COALESCE(last_login, reg_time) as last_login,
+                reg_time
             FROM users 
             ORDER BY 
                 CASE WHEN last_login IS NULL THEN 1 ELSE 0 END,
@@ -537,12 +546,19 @@ app.get('/api/users', auth, async (req, res) => {
         const formattedUsers = users.map(user => {
             const userData = { ...user };
             
+            // Format last_login
             if (userData.last_login && typeof userData.last_login === 'string') {
-                userData.last_login = userData.last_login.replace(' ', 'T') + 'Z';
+                // Convert SQLite datetime to ISO format if needed
+                if (!userData.last_login.includes('T')) {
+                    userData.last_login = userData.last_login.replace(' ', 'T') + 'Z';
+                }
             }
             
+            // Format reg_time
             if (userData.reg_time && typeof userData.reg_time === 'string') {
-                userData.reg_time = userData.reg_time.replace(' ', 'T') + 'Z';
+                if (!userData.reg_time.includes('T')) {
+                    userData.reg_time = userData.reg_time.replace(' ', 'T') + 'Z';
+                }
             }
             
             return userData;
@@ -591,6 +607,7 @@ app.post('/api/users/block', auth, async (req, res) => {
     }
 });
 
+// Unblock users - FIXED: Check verification token to determine correct status
 app.post('/api/users/unblock', auth, async (req, res) => {
     try {
         const { userIds } = req.body;
