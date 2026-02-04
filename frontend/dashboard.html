@@ -752,26 +752,34 @@
             return response;
         }
 
-        async function blockUsers() {
-            if (selectedUserIds.length === 0) return;
+async function blockUsers() {
+    if (selectedUserIds.length === 0) return;
+    
+    try {
+        const response = await makeApiRequest('/api/users/block', 'POST', {
+            userIds: selectedUserIds
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast(data.message, 'success');
             
-            try {
-                const response = await makeApiRequest('/api/users/block', 'POST', {
-                    userIds: selectedUserIds
-                });
-                
-                const data = await response.json();
-                showToast(data.message, data.success ? 'success' : 'error');
-                
-                if (data.success) {
-                    await loadUsers();
-                }
-                
-            } catch (error) {
-                console.error('Error blocking users:', error);
-                showToast('Failed to block users', 'error');
+            if (data.currentUserBlocked) {
+                showToast('You have blocked yourself. Logging out...', 'info');
+                setTimeout(() => logout(), 2000);
+            } else {
+                await loadUsers();
             }
+        } else {
+            showToast(data.message, 'error');
         }
+        
+    } catch (error) {
+        console.error('Error blocking users:', error);
+        showToast('Failed to block users', 'error');
+    }
+}
 
         async function unblockUsers() {
             if (selectedUserIds.length === 0) return;
